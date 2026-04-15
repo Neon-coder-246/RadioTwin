@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>RadioTwin v5.3-TP</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<style>
+    body {
+        margin: 0;
+        background: #0A0C10;
+        font-family: Arial, sans-serif;
+        display: flex;
+        height: 100vh;
+        color: white;
+        overflow: hidden;
+        position: relative;
+    }
+
+    #visualiser {
+        position: absolute;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: radial-gradient(circle, rgba(30,144,255,0.15), rgba(0,0,0,0.9));
+        filter: blur(60px);
+        z-index: 0;
+        transition: transform 0.08s ease-out;
+    }
+
+    #sidebar {
+        width: 260px;
+        background: #0D0F12;
+        padding-top: 40px;
+        display: flex;
+        flex-direction: column;
+        z-index: 2;
+    }
+
+    .item {
+        padding: 26px;
+        font-size: 26px;
+        cursor: pointer;
+        outline: none;
+    }
+
+    .focused {
+        outline: 3px solid #1E90FF;
+        outline-offset: 4px;
+        border-radius: 12px;
+    }
+
+    #main {
+        flex: 1;
+        padding: 40px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        z-index: 2;
+    }
+
+    #logo {
+        width: 240px;
+        height: 240px;
+        margin-bottom: 20px;
+        background-size: contain;
+        background-repeat: no-repeat;
+        background-position: center;
+        opacity: 0.95;
+    }
+
+    #cover {
+        width: 320px;
+        height: 320px;
+        border-radius: 16px;
+        background-size: cover;
+        background-position: center;
+        margin-bottom: 30px;
+        background-color: #111;
+    }
+
+    #title {
+        font-size: 32px;
+        margin-bottom: 10px;
+    }
+
+    #artist {
+        font-size: 24px;
+        opacity: 0.7;
+        margin-bottom: 40px;
+    }
+
+    #controls button {
+        padding: 18px 40px;
+        font-size: 26px;
+        margin: 10px;
+        border: none;
+        border-radius: 12px;
+        background: #1E90FF;
+        color: white;
+        cursor: pointer;
+        outline: none;
+    }
+
+    #error {
+        color: #ff4444;
+        font-size: 24px;
+        margin-top: 20px;
+    }
+
+    #version {
+        position: fixed;
+        bottom: 10px;
+        right: 10px;
+        opacity: 0.4;
+        font-size: 18px;
+    }
+</style>
+</head>
+
+<body>
+
+<div id="visualiser"></div>
+
+<div id="sidebar">
+    <div id="rmf" class="item" tabindex="0">RMF FM</div>
+    <div id="zet" class="item" tabindex="0">Radio ZET</div>
+    <div id="anty" class="item" tabindex="0">Antyradio</div>
+</div>
+
+<div id="main">
+    <div id="logo"></div>
+    <div id="cover"></div>
+    <div id="title">Select a station</div>
+    <div id="artist"></div>
+
+    <div id="controls">
+        <button id="playBtn" tabindex="0">▶ Play</button>
+        <button id="pauseBtn" tabindex="0">⏸ Pause</button>
+    </div>
+
+    <div id="error"></div>
+</div>
+
+<div id="version">RadioTwin v5.3‑TP</div>
+
+<audio id="player" crossorigin="anonymous"></audio>
+
+<script>
+/* Kill hidden audio elements (Median secret embed) */
+setInterval(() => {
+    document.querySelectorAll("audio").forEach(a => {
+        if (a !== player) {
+            a.pause();
+            a.src = "";
+        }
+    });
+}, 500);
+
+/* MediaSession override */
+if ("mediaSession" in navigator) {
+    navigator.mediaSession.setActionHandler("play", () => player.play());
+    navigator.mediaSession.setActionHandler("pause", () => player.pause());
+    navigator.mediaSession.setActionHandler("stop", () => player.pause());
+}
+
+/* Detect sandbox (Median / GitHub Pages) */
+const isSandbox =
+    location.hostname.includes("github.io") ||
+    location.hostname.includes("githubusercontent") ||
+    navigator.userAgent.includes("Median");
+
+/* AUDIO-CAPABLE PROXY */
+const PROXY = "https://radiotwin-proxy.kacperbieganski5565653.workers.dev/?url=";
+
+/* STREAMS */
+const RMF_STREAMS = [
+    "https://rs1-krk2.rmfstream.pl/rmf_fm",
+    "https://rs2-krk2.rmfstream.pl/rmf_fm"
+];
+
+const ZET_STREAMS = [
+    "https://zt01.cdn.eurozet.pl/zet-net.mp3",
+    "https://zt02.cdn.eurozet.pl/zet-net.mp3"
+];
+
+const ANTY_STREAMS = [
+    "https://ant-waw-01.cdn.eurozet.pl/ant-waw.mp3",
+    "https://ant-waw-02.cdn.eurozet.pl/ant-waw.mp3"
+];
+
+/* LOGOS */
+const LOGOS = {
+    RMF: "rmf.png",
+    ZET: "zet.png",
+    ANTY: "anty.png"
+};
+
+/* UI ELEMENTS */
+const player = document.getElementById("player");
+const logo = document.getElementById("logo");
+const cover = document.getElementById("cover");
+const title = document.getElementById("title");
+const artist = document.getElementById("artist");
+const errorBox = document.getElementById("error");
+const visualiser = document.getElementById("visualiser");
+
+player.volume = 1.0;
+
+let currentStation = null;
+let focusIndex = 0;
+let inControls = false;
+
+const stationButtons = [
+    document.getElementById("rmf"),
+    document.getElementById("zet"),
+    document.getElementById("anty")
+];
+
+const controlButtons = [
+    document.getElementById("playBtn"),
+    document.getElementById("pauseBtn")
+];
+
+function updateFocus() {
+    stationButtons.forEach(btn => btn.classList.remove("focused"));
+    controlButtons.forEach(btn => btn.classList.remove("focused"));
+
+    if (!inControls) {
+        stationButtons[focusIndex].classList.add("focused");
+        stationButtons[focusIndex].focus();
+    } else {
+        controlButtons[focusIndex].classList.add("focused");
+        controlButtons[focusIndex].focus();
+    }
+}
+
+updateFocus();
+
+/* STREAM LOADER */
+function playWithFallback(list, stationName) {
+    let index = 0;
+
+    function tryNext() {
+        if (index >= list.length) {
+            errorBox.textContent = "Can't fetch URLs";
+            return;
+        }
+
+        let url = list[index];
+
+        if (isSandbox) {
+            url = PROXY + url;
+        }
+
+        player.src = url;
+
+        player.play().catch(() => {
+            index++;
+            tryNext();
+        });
+    }
+
+    tryNext();
+}
+
+/* LOAD STATION */
+function loadStation(name, streams) {
+    currentStation = name;
+    errorBox.textContent = "";
+    title.textContent = "Loading…";
+
+    logo.style.backgroundImage = `url('${LOGOS[name]}')`;
+
+    if (name === "RMF" && !isSandbox) {
+        errorBox.textContent = "RMF FM requires a Poland VPN";
+    }
+
+    playWithFallback(streams, name);
+}
+
+/* PLAYER STATE */
+player.onplaying = () => title.textContent = "Playing";
+player.onpause = () => title.textContent = "Paused";
+player.onwaiting = () => title.textContent = "Loading…";
+
+/* BUTTON ACTIONS */
+controlButtons[0].onclick = () => player.play();
+controlButtons[1].onclick = () => player.pause();
+
+/* SIDEBAR ACTIONS */
+stationButtons[0].onclick = () => loadStation("RMF", RMF_STREAMS);
+stationButtons[1].onclick = () => loadStation("ZET", ZET_STREAMS);
+stationButtons[2].onclick = () => loadStation("ANTY", ANTY_STREAMS);
+
+/* REMOTE NAVIGATION */
+document.addEventListener("keydown", (e) => {
+    const code = e.keyCode;
+    const key = e.key;
+
+    if (code === 179) {
+        player.paused ? player.play() : player.pause();
+        return;
+    }
+
+    if (code === 8 || key === "Backspace") {
+        inControls = false;
+        focusIndex = 0;
+        updateFocus();
+        return;
+    }
+
+    if (code === 37 || key === "ArrowLeft") {
+        if (inControls) {
+            inControls = false;
+            focusIndex = 0;
+            updateFocus();
+        }
+        return;
+    }
+
+    if (code === 39 || key === "ArrowRight") {
+        if (!inControls) {
+            inControls = true;
+            focusIndex = 0;
+            updateFocus();
+        }
+        return;
+    }
+
+    if (code === 38 || key === "ArrowUp") {
+        focusIndex = Math.max(0, focusIndex - 1);
+        updateFocus();
+        return;
+    }
+
+    if (code === 40 || key === "ArrowDown") {
+        if (!inControls) {
+            focusIndex = Math.min(stationButtons.length - 1, focusIndex + 1);
+        } else {
+            focusIndex = Math.min(controlButtons.length - 1, focusIndex + 1);
+        }
+        updateFocus();
+        return;
+    }
+
+    if (code === 13 || key === "Enter") {
+        if (!inControls) stationButtons[focusIndex].click();
+        else controlButtons[focusIndex].click();
+    }
+});
+
+/* VISUALISER */
+let audioCtx = null;
+let analyser = null;
+let dataArray = null;
+
+player.onplay = () => {
+    if (!audioCtx) {
+        audioCtx = new AudioContext();
+        const source = audioCtx.createMediaElementSource(player);
+        analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 256;
+
+        source.connect(analyser);
+        analyser.connect(audioCtx.destination);
+
+        dataArray = new Uint8Array(analyser.frequencyBinCount);
+    }
+
+    animateVisualiser();
+};
+
+function animateVisualiser() {
+    if (!analyser) return;
+
+    analyser.getByteFrequencyData(dataArray);
+
+    let bass = 0;
+    for (let i = 0; i < 10; i++) bass += dataArray[i];
+    bass /= 10;
+
+    const scale = 1 + (bass / 255) * 0.6;
+    visualiser.style.transform = `scale(${scale})`;
+
+    requestAnimationFrame(animateVisualiser);
+}
+</script>
+
+</body>
+</html>
