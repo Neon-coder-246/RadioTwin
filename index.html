@@ -165,10 +165,7 @@ if ("mediaSession" in navigator) {
 }
 
 /* Detect sandbox (Median / GitHub Pages) */
-const isSandbox =
-    location.hostname.includes("github.io") ||
-    location.hostname.includes("githubusercontent") ||
-    navigator.userAgent.includes("Median");
+const isSandbox = location.hostname.endsWith(".github.io");
 
 /* AUDIO-CAPABLE PROXY */
 const PROXY = "https://radiotwin-proxy.kacperbieganski5565653.workers.dev/?url=";
